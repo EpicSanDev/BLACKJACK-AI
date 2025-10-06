@@ -177,6 +177,7 @@ def build_onstart_script(
     venv_name: str,
     train_command: str,
     extra_setup: Optional[List[str]] = None,
+    pre_train_commands: Optional[List[str]] = None,
     log_dir: str = "logs",
 ) -> str:
     workspace_q = shlex.quote(remote_workspace)
@@ -234,7 +235,12 @@ def build_onstart_script(
         ]
     )
 
-    run_line = f"{train_command} 2>&1 | tee \"$LOG_DIR/train-$RUN_ID.log\""
+    command_chain: List[str] = []
+    if pre_train_commands:
+        command_chain.extend(pre_train_commands)
+    command_chain.append(train_command)
+    combined_command = " && ".join(command_chain)
+    run_line = f"{combined_command} 2>&1 | tee \"$LOG_DIR/train-$RUN_ID.log\""
     lines.append(run_line)
     return "\n".join(lines)
 
@@ -333,6 +339,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     else:
         extra_setup.append("VENV_DIR=")
 
+    dataset_commands = [f"{shlex.quote(args.python_bin)} tools/download_card_assets.py"]
+
     onstart_script = build_onstart_script(
         git_url=git_url,
         git_branch=git_branch,
@@ -342,6 +350,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         venv_name=args.venv_name,
         train_command=train_command,
         extra_setup=extra_setup,
+        pre_train_commands=dataset_commands,
         log_dir=args.remote_log_dir,
     )
 

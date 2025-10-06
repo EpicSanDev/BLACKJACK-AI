@@ -6,7 +6,11 @@ import argparse
 import os
 import shlex
 import sys
+from pathlib import Path
 from typing import List
+
+if __package__ in {None, ""}:
+    sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from tools import vast_train, vast_train_detector
 from tools.vast_train import DEFAULT_BASE_URL
@@ -61,10 +65,14 @@ def run_step(label: str, script_name: str, func, argv: List[str], dry_run: bool)
 def main() -> int:
     args = parse_args()
 
-    if not args.api_key:
-        raise SystemExit("Aucune clé API Vast.ai fournie (argument --api-key ou variable VAST_API_KEY).")
+    api_key = args.api_key
+    if not api_key:
+        if args.dry_run:
+            api_key = "<VAST_API_KEY>"
+        else:
+            raise SystemExit("Aucune clé API Vast.ai fournie (argument --api-key ou variable VAST_API_KEY).")
 
-    shared = ["--api-key", args.api_key]
+    shared = ["--api-key", api_key]
     if args.base_url != DEFAULT_BASE_URL:
         shared += ["--base-url", args.base_url]
 

@@ -9,7 +9,7 @@ dist/
 
 # Virtual environments & local tooling
 .venv/
-.env/
+.env
 .env.local
 .vscode/
 .idea/

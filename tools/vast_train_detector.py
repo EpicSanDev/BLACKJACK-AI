@@ -106,6 +106,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     else:
         extra_setup.append("VENV_DIR=")
 
+    dataset_commands = [f"{shlex.quote(args.python_bin)} tools/download_card_assets.py"]
+
     onstart = build_onstart_script(
         git_url=git_url,
         git_branch=git_branch,
@@ -115,6 +117,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         venv_name=args.venv_name,
         train_command=train_command,
         extra_setup=extra_setup,
+        pre_train_commands=dataset_commands,
         log_dir=args.remote_log_dir,
     )
 
