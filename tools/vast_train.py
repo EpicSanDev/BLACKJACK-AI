@@ -21,6 +21,7 @@ import requests
 
 DEFAULT_BASE_URL = os.getenv("VAST_URL", "https://console.vast.ai")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_GIT_URL = "https://github.com/EpicSanDev/BLACKJACK-AI.git"
 
 
 class VastAIError(RuntimeError):
@@ -71,12 +72,87 @@ class VastAIClient:
         raise VastAIError(f"Impossible de contacter Vast.ai pour {method} {path}")
 
     def search_offers(self, query: Dict[str, Any]) -> List[Dict[str, Any]]:
-        payload = {"select_cols": ["*"], "q": query}
-        data = self.request("POST", "/bundles/", json=payload)
+        query = dict(query)
+        limit = int(query.pop("limit", 20) or 20)
+        order_spec = query.pop("order", [])
+        offer_type = query.pop("type", None)
+
+        params = {"limit": max(limit, 64)}
+        data = self.request("GET", "/bundles/", params=params)
         offers = data.get("offers", [])
         if not isinstance(offers, list):
             raise VastAIError(f"Structure inattendue pour les offres: {offers!r}")
-        return offers
+
+        def bool_value(value: Any) -> bool:
+            return bool(value) if value is not None else False
+
+        def matches(offer: Dict[str, Any], field: str, condition: Any) -> bool:
+            if isinstance(condition, dict):
+                target_eq = condition.get("eq")
+                target_gte = condition.get("gte")
+                target_lte = condition.get("lte")
+            else:
+                target_eq = condition
+                target_gte = None
+                target_lte = None
+
+            if field == "verified":
+                actual = offer.get("verification") == "verified"
+            elif field == "external":
+                actual = bool_value(offer.get("external"))
+            elif field == "rentable":
+                actual = bool_value(offer.get("rentable"))
+            elif field == "rented":
+                actual = bool_value(offer.get("rented"))
+            elif field == "gpu_ram":
+                actual = offer.get("gpu_ram")
+            elif field == "gpu_total_ram":
+                actual = offer.get("gpu_total_ram")
+            elif field == "dph_total":
+                actual = offer.get("dph_total")
+            elif field == "gpu_name":
+                actual = offer.get("gpu_name")
+            elif field == "num_gpus":
+                actual = offer.get("num_gpus")
+            elif field == "geolocation":
+                actual = offer.get("geolocation")
+            else:
+                actual = offer.get(field)
+
+            if target_eq is not None:
+                if field == "geolocation" and isinstance(actual, str) and isinstance(target_eq, str):
+                    if target_eq.lower() not in actual.lower():
+                        return False
+                else:
+                    if actual != target_eq:
+                        return False
+            if target_gte is not None and (actual is None or actual < target_gte):
+                return False
+            if target_lte is not None and (actual is None or actual > target_lte):
+                return False
+            return True
+
+        filtered: List[Dict[str, Any]] = []
+        for offer in offers:
+            if offer_type == "bid" and not bool_value(offer.get("is_bid")):
+                continue
+            if offer_type == "on-demand" and bool_value(offer.get("is_bid")):
+                continue
+
+            if all(matches(offer, field, condition) for field, condition in query.items()):
+                filtered.append(offer)
+
+        if order_spec:
+            order_field, order_dir = order_spec[0]
+            reverse = order_dir == "desc"
+
+            def sort_key(item: Dict[str, Any]) -> Any:
+                value = item.get(order_field)
+                return value if value is not None else 0
+
+            filtered.sort(key=sort_key, reverse=reverse)
+
+        return filtered[:limit]
 
     def create_instance(self, ask_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
         data = self.request("PUT", f"/asks/{ask_id}/", json=payload)
@@ -314,7 +390,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         git_branch = git_branch or detected_branch
 
     if not git_url:
-        raise SystemExit("Impossible de déterminer l'URL git. Fournissez --git-url.")
+        git_url = DEFAULT_GIT_URL
     if not git_branch:
         git_branch = "main"
 

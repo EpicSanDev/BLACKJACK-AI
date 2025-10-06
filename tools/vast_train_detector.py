@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from tools.vast_train import (
     DEFAULT_BASE_URL,
+    DEFAULT_GIT_URL,
     PROJECT_ROOT,
     VastAIClient,
     build_onstart_script,
@@ -84,7 +85,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         git_branch = git_branch or detected_branch
 
     if not git_url:
-        raise SystemExit("Impossible de déterminer l'URL git. Fournissez --git-url.")
+        git_url = DEFAULT_GIT_URL
     if not git_branch:
         git_branch = "main"
 
