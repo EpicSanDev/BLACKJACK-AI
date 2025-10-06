@@ -5,3 +5,4 @@ numpy
 Flask
 mss
 requests
+pygame

@@ -111,3 +111,17 @@ requirements.txt    Minimal dependency set (Ultralytics + runtime libraries)
 - Calibrate ROIs per casino resolution; save custom presets with shell aliases or wrapper scripts.
 
 Enjoy faster experiments on every CPU core and GPU your machine offers!
+
+## Interactive Blackjack Game
+
+Launch the training-friendly blackjack simulator to generate on-screen hands for the real-time advisor or manual practice:
+
+```bash
+python blackjack_game.py --width 1280 --height 720 --use-chart-advisor
+```
+
+- Uses the card assets from `dataset/png` and optional table backgrounds under `dataset/backgrounds`.
+- Keyboard shortcuts: `Space` = tirer (en jeu) / distribuer (hors jeu), `H` = tirer, `S` = rester, `D` = doubler, `R` = abandonner, flèches haut/bas pour ajuster la mise.
+- Buttons mirror the actions; enable `--advanced-policy model/advanced_policy.json` pour charger une policy entraînée.
+- The simulator exposes advisor hints (chart ou policy) to validate decisions while furnishing a visual feed for `realtime_advisor.py`.
+- Append `--online-learning --use-chart-advisor` to activate on-the-fly Q-learning updates: chaque main jouée alimente un Q-table interne qui affine les conseils en temps réel (`--learning-rate` pour l'alpha, `--exploration` pour l'epsilon-greedy).
