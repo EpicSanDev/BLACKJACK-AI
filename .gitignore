@@ -1,0 +1,37 @@
+# Python cache & build outputs
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+*.egg-info/
+build/
+dist/
+
+# Virtual environments & local tooling
+.venv/
+.env/
+.env.local
+.vscode/
+.idea/
+.DS_Store
+
+# Training artifacts
+runs/
+logs/
+model/*.pt
+model/*.pth
+model/checkpoints/
+model/advanced_policy.json
+
+# Synthetic dataset outputs
+dataset/generated/
+dataset/train/
+dataset/val/
+dataset/
+# Temporary files
+*.log
+*.tmp
+*.swp
+
+# Vast.ai helper caches
+.vasttmp/
