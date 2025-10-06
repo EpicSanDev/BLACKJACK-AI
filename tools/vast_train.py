@@ -402,15 +402,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     train_command = build_training_command(train_args, args.python_bin)
 
     use_venv = not args.no_venv
-    extra_setup = [
-        "if ! command -v git >/dev/null 2>&1; then apt-get update && apt-get install -y git; fi",
-    ]
+    base_packages_cmd = (
+        "apt-get update && "
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y "
+        "git libgl1 libglib2.0-0 python3-venv"
+    )
+    extra_setup = [base_packages_cmd]
     if args.extra_setup:
         extra_setup.extend(args.extra_setup)
     if use_venv:
-        extra_setup.append(
-            "if ! python3 -m venv --help >/dev/null 2>&1; then apt-get update && apt-get install -y python3-venv; fi"
-        )
         extra_setup.append(f"VENV_DIR={shlex.quote(args.venv_name)}")
     else:
         extra_setup.append("VENV_DIR=")

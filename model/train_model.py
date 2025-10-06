@@ -303,8 +303,26 @@ def train(args: argparse.Namespace) -> None:
         pretrained=True,
     )
 
-    print("Training complete. Best weights stored at:")
-    print(results.best)
+    trainer = getattr(model, "trainer", None)
+    best_weights = getattr(results, "best", None)
+    if best_weights is None and trainer is not None:
+        best_weights = (
+            getattr(trainer, "best", None)
+            or getattr(trainer, "best_path", None)
+            or getattr(trainer, "best_model_path", None)
+        )
+
+    print("Training complete.")
+    if best_weights:
+        print("Best weights stored at:")
+        print(best_weights)
+    else:
+        save_dir = getattr(trainer, "save_dir", None)
+        if save_dir:
+            print("Best weights path unavailable from Ultralytics result; check training directory:")
+            print(save_dir)
+        else:
+            print("Best weights path unavailable from Ultralytics result.")
 
 
 def main() -> None:
