@@ -438,19 +438,26 @@ def main(argv: Optional[List[str]] = None) -> int:
     client = VastAIClient(api_key=args.api_key, base_url=args.base_url)
 
     if args.ask_id is not None:
-        selected_offer = {"id": args.ask_id}
+        candidate_offers = [{"id": args.ask_id}]
     else:
         query = build_query(args)
         offers = client.search_offers(query)
         if not offers:
             raise SystemExit("Aucune offre Vast.ai ne correspond aux critères.")
-        selected_offer = offers[0]
+        candidate_offers = offers
+        first_offer = offers[0]
         print("Offre sélectionnée:")
-        print(json.dumps({k: selected_offer.get(k) for k in ("id", "gpu_name", "num_gpus", "dph_total", "gpu_ram", "geolocation")}, indent=2))
+        print(
+            json.dumps(
+                {
+                    k: first_offer.get(k)
+                    for k in ("id", "gpu_name", "num_gpus", "dph_total", "gpu_ram", "geolocation")
+                },
+                indent=2,
+            )
+        )
 
-    ask_id = int(selected_offer["id"])
-
-    payload: Dict[str, Any] = {
+    base_payload: Dict[str, Any] = {
         "client_id": "me",
         "image": args.image,
         "disk": args.disk,
@@ -463,14 +470,36 @@ def main(argv: Optional[List[str]] = None) -> int:
     }
 
     if args.bid_price is not None:
-        payload["price"] = float(args.bid_price)
+        base_payload["price"] = float(args.bid_price)
     else:
-        payload["price"] = None
+        base_payload["price"] = None
 
-    response = client.create_instance(ask_id, payload)
-    instance_id = response.get("new_contract")
+    last_error: Optional[Exception] = None
+    instance_id: Optional[int] = None
+
+    for idx, selected_offer in enumerate(candidate_offers, start=1):
+        ask_id = int(selected_offer["id"])
+        payload = dict(base_payload)
+        print(f"Tentative de provisioning avec l'offre {ask_id} (essai {idx}/{len(candidate_offers)})")
+        try:
+            response = client.create_instance(ask_id, payload)
+        except VastAIError as exc:
+            last_error = exc
+            message = str(exc)
+            if "no_such_ask" in message or "not available" in message:
+                print(f"Offre {ask_id} indisponible, on tente la suivante...")
+                continue
+            raise
+
+        instance_id = response.get("new_contract")
+        if instance_id is None:
+            raise VastAIError(f"Réponse inattendue lors de la création: {response}")
+        break
+
     if instance_id is None:
-        raise VastAIError(f"Réponse inattendue lors de la création: {response}")
+        if last_error is not None:
+            raise last_error
+        raise SystemExit("Impossible de provisionner une instance Vast.ai avec les offres proposées.")
 
     print(f"Instance Vast.ai créée: ID={instance_id}")
 

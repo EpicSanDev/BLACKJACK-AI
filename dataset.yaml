@@ -1,7 +1,7 @@
 # YOLOv8 dataset configuration file
 
-# Path to the root directory of the dataset
-path: /Users/bastienjavaux/BLACKJACK AI/dataset
+# Path to the root directory of the dataset (resolved relative to this file)
+path: dataset
 train: train
 val: val
 
