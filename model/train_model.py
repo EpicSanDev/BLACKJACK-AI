@@ -401,6 +401,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cache-images", action="store_true", help="Cache images in memory to accelerate training")
     parser.add_argument("--no-amp", dest="amp", action="store_false", help="Disable automatic mixed precision even if available")
     parser.add_argument("--no-plots", dest="plots", action="store_false", help="Disable plot generation during training")
+    parser.add_argument("--resume", type=str, default=None, help="Resume training from a specific checkpoint file (e.g., 'path/to/last.pt')")
     parser.set_defaults(regenerate=True, amp=True, use_kaggle_cards=True, plots=True)
     return parser.parse_args()
 
@@ -741,7 +742,7 @@ def train(args: argparse.Namespace) -> None:
     print(f"Training on device: {device}")
     print(f"Using {args.workers} dataloader workers")
 
-    model = YOLO(str(args.weights))
+    model = YOLO(str(args.weights) if not args.resume else args.resume)
     results = model.train(
         data=str(args.dataset_config),
         epochs=args.epochs,
@@ -754,7 +755,7 @@ def train(args: argparse.Namespace) -> None:
         optimizer=args.optimizer,
         lr0=args.lr0,
         patience=args.patience,
-        cache=args.cache_images,
+        cache=False,
         amp=args.amp,
         seed=args.seed,
         pretrained=True,
@@ -771,6 +772,8 @@ def train(args: argparse.Namespace) -> None:
         mosaic=1.0,
         mixup=0.1,
         plots=args.plots,
+        resume=bool(args.resume),
+        save_period=10,
     )
 
     trainer = getattr(model, "trainer", None)
