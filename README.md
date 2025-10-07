@@ -36,6 +36,11 @@ Key features:
 
 To reuse an existing dataset without regenerating images, append `--no-regenerate`.
 
+### One-Click Pipeline
+- `python tools/one_click_pipeline.py` downloads Kaggle data (if needed), converts assets, regenerates priors, and launches `model/train_model.py`.
+- Append `--vast` to chain the Vast.ai provisioning script after the local run; pass extra flags with `--train-args "--epochs 150"` or `--vast-args "--vision-options ..."`.
+- Use `--dry-run` to verify the generated commands without executing them, or disable individual steps with `--skip-*` switches.
+
 ### Mix In External Datasets
 - Stitch real-world data into the synthetic corpus with `--extra-dataset /path/to/yolo_dataset`. The script autodetects `images/train` + `labels/train` (or `train/`) pairs and copies them into `dataset/train`/`dataset/val`.
 - Provide plain directories of paired images/labels with `--extra-train-dir` and `--extra-val-dir` when your assets already follow the repo layout.
