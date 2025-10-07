@@ -17,6 +17,28 @@ DEFAULT_OUTPUT = ROOT_DIR / "dataset" / "external" / "blackjack_hands" / "card_d
 
 CARD_PATTERN = re.compile(r"-?\d+")
 
+PLAYER_COLUMN_CANDIDATES = [
+    'player_cards_initial',
+    'player_initial_cards',
+    ('player', 'initial', 'card'),
+    ('player', 'starting', 'card'),
+    ('player', 'cards', 'start'),
+    ('player', 'cards', 'before'),
+    ('player', 'cards'),
+]
+PLAYER_EXCLUDE_TOKENS = {'final', 'result', 'after', 'end'}
+
+DEALER_COLUMN_CANDIDATES = [
+    'dealer_up_card',
+    'dealer_upcard',
+    ('dealer', 'upcard'),
+    ('dealer', 'up', 'card'),
+    ('dealer', 'showing'),
+    ('dealer', 'visible', 'card'),
+    ('dealer', 'first', 'card'),
+]
+DEALER_EXCLUDE_TOKENS = {'final', 'total', 'hand', 'value'}
+
 
 class ColumnDetectionError(RuntimeError):
     pass
@@ -51,11 +73,24 @@ def open_csv(path: Path) -> TextIO:
     return path.open("r", encoding="utf-8")
 
 
-def detect_column(fieldnames: Iterable[str], keywords: Iterable[str]) -> Optional[str]:
-    lowered = {name.lower(): name for name in fieldnames if name}
-    for lower, original in lowered.items():
-        if all(keyword in lower for keyword in keywords):
-            return original
+def _normalise(name: str) -> str:
+    return ''.join(ch for ch in name.lower() if ch.isalnum())
+
+
+def find_column(fieldnames: Iterable[str], candidates: Iterable, excludes: Iterable[str]) -> Optional[str]:
+    field_map = {name: _normalise(name) for name in fieldnames if name}
+    for candidate in candidates:
+        for original, normalised in field_map.items():
+            if any(exclude in normalised for exclude in excludes):
+                continue
+            if isinstance(candidate, tuple):
+                if all(keyword in normalised for keyword in candidate):
+                    return original
+            else:
+                if _normalise(str(candidate)) == normalised:
+                    return original
+                if isinstance(candidate, str) and _normalise(candidate) in normalised:
+                    return original
     return None
 
 
@@ -90,12 +125,14 @@ def summarise(args: argparse.Namespace) -> None:
         if reader.fieldnames is None:
             raise RuntimeError("CSV file has no header row")
 
-        player_col = args.player_column or detect_column(reader.fieldnames, ("player", "initial", "card"))
-        dealer_col = args.dealer_column or detect_column(reader.fieldnames, ("dealer", "up"))
+        player_col = args.player_column or find_column(reader.fieldnames, PLAYER_COLUMN_CANDIDATES, PLAYER_EXCLUDE_TOKENS)
+        dealer_col = args.dealer_column or find_column(reader.fieldnames, DEALER_COLUMN_CANDIDATES, DEALER_EXCLUDE_TOKENS)
 
         if not player_col or not dealer_col:
+            columns = ', '.join(reader.fieldnames or [])
             raise ColumnDetectionError(
-                "Unable to locate required columns. Use --player-column/--dealer-column to specify them explicitly."
+                "Unable to locate required columns. Use --player-column/--dealer-column to specify them explicitly. Available columns: "
+                + columns
             )
 
         for row in reader:
