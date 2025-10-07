@@ -32,6 +32,12 @@ def parse_args() -> argparse.Namespace:
         default=[256, 256, 128],
         help="Hidden layer sizes for the DQN model",
     )
+    parser.add_argument(
+        "--parallel-envs",
+        type=int,
+        default=1,
+        help="Number of blackjack environments to run in parallel for DQN training",
+    )
     parser.add_argument("--dealer-hits-soft-17", action="store_true", help="Train assuming the dealer hits on soft 17")
     parser.add_argument("--disable-surrender", action="store_true", help="Disable surrender during training")
     parser.add_argument("--disable-double", action="store_true", help="Disable doubling down during training")
@@ -77,6 +83,7 @@ def main() -> None:
             warmup=args.warmup,
             target_sync_interval=args.target_sync,
             hidden_sizes=tuple(args.hidden_sizes),
+            parallel_envs=args.parallel_envs,
             dealer_hits_soft_17=args.dealer_hits_soft_17,
             surrender_allowed=surrender_allowed,
             double_allowed=double_allowed,
@@ -108,6 +115,7 @@ def main() -> None:
                 "warmup": args.warmup,
                 "target_sync_interval": args.target_sync,
                 "hidden_sizes": args.hidden_sizes,
+                "parallel_envs": args.parallel_envs,
                 "device": args.device or "auto",
                 "seed": args.seed,
             }

@@ -116,6 +116,29 @@ ZERO_FEATURES: Tuple[float, ...] = tuple(0.0 for _ in range(FEATURE_DIM))
 ZERO_MASK: Tuple[bool, ...] = tuple(False for _ in ACTION_LABELS)
 
 
+def _log_training_progress(
+    label: str,
+    episode: int,
+    total_episodes: int,
+    avg_reward: float,
+    *,
+    epsilon: float | None = None,
+    avg_loss: float | None = None,
+    buffer_fill_ratio: float | None = None,
+) -> None:
+    """Emit a short, flush-progress update that can be captured by loggers."""
+
+    parts = [f"[{label}] {episode}/{total_episodes} episodes"]
+    parts.append(f"avg reward={avg_reward:.3f}")
+    if epsilon is not None:
+        parts.append(f"epsilon={epsilon:.3f}")
+    if avg_loss is not None:
+        parts.append(f"avg loss={avg_loss:.4f}")
+    if buffer_fill_ratio is not None:
+        parts.append(f"replay fill={buffer_fill_ratio*100:.1f}%")
+    print(" | ".join(parts), flush=True)
+
+
 class ReplayBuffer:
     def __init__(self, capacity: int) -> None:
         self.capacity = capacity
@@ -286,9 +309,14 @@ def train_q_learning(
     q_table: Dict[str, List[float]] = defaultdict(lambda: [0.0] * len(ACTION_LABELS))
     visits: Dict[str, int] = defaultdict(int)
 
+    log_interval = max(1, episodes // 200) if episodes > 0 else 1
+    episodes_since_log = 0
+    reward_since_log = 0.0
+
     for episode in range(1, episodes + 1):
         state = env.reset()
         done = False
+        episode_reward = 0.0
 
         while not done:
             state_key = state.key()
@@ -308,6 +336,7 @@ def train_q_learning(
                 action = random.choice(best_actions)
 
             next_state, reward, done, _ = env.step(action)
+            episode_reward += float(reward)
 
             q_values = q_table[state_key]
             if done:
@@ -328,6 +357,20 @@ def train_q_learning(
 
         epsilon = max(epsilon_min, epsilon * epsilon_decay)
 
+        reward_since_log += episode_reward
+        episodes_since_log += 1
+        if episode == 1 or episode % log_interval == 0:
+            avg_reward = reward_since_log / max(1, episodes_since_log)
+            _log_training_progress(
+                "Q-learning",
+                episode,
+                episodes,
+                avg_reward,
+                epsilon=epsilon,
+            )
+            reward_since_log = 0.0
+            episodes_since_log = 0
+
     return q_table, visits
 
 
@@ -344,6 +387,7 @@ def train_dqn(
     warmup: int = 5_000,
     target_sync_interval: int = 1_000,
     hidden_sizes: Sequence[int] = (256, 256, 128),
+    parallel_envs: int = 1,
     dealer_hits_soft_17: bool = DEFAULT_GAME_RULES["dealer_hits_on_soft_17"],
     surrender_allowed: bool = DEFAULT_GAME_RULES["surrender_allowed"],
     double_allowed: bool = True,
@@ -381,11 +425,20 @@ def train_dqn(
         def forward(self, x: torch.Tensor) -> torch.Tensor:  # pragma: no cover - simple delegation
             return self.model(x)
 
-    env = BlackjackEnv(
-        dealer_hits_soft_17=dealer_hits_soft_17,
-        surrender_allowed=surrender_allowed,
-        double_allowed=double_allowed,
-    )
+    effective_parallel_envs = max(1, parallel_envs)
+    num_envs = 1 if episodes <= 0 else min(effective_parallel_envs, episodes)
+    envs = [
+        BlackjackEnv(
+            dealer_hits_soft_17=dealer_hits_soft_17,
+            surrender_allowed=surrender_allowed,
+            double_allowed=double_allowed,
+        )
+        for _ in range(num_envs)
+    ]
+    states = [env.reset() for env in envs]
+    active_mask = [True] * num_envs
+    episode_rewards = [0.0] * num_envs
+
     policy_net = PolicyNetwork(FEATURE_DIM, hidden_sizes).to(torch_device)
     target_net = PolicyNetwork(FEATURE_DIM, hidden_sizes).to(torch_device)
     target_net.load_state_dict(policy_net.state_dict())
@@ -398,34 +451,60 @@ def train_dqn(
 
     epsilon = epsilon_start
     step_count = 0
+    episodes_completed = 0
 
-    for episode in range(1, episodes + 1):
-        state = env.reset()
-        done = False
+    log_interval = max(1, episodes // 200) if episodes > 0 else 1
+    episodes_since_log = 0
+    reward_since_log = 0.0
+    loss_since_log = 0.0
+    loss_updates_since_log = 0
 
-        while not done:
+    while episodes_completed < episodes:
+        active_indices = [idx for idx, active in enumerate(active_mask) if active]
+        if not active_indices:
+            break
+
+        features_batch: List[Tuple[float, ...]] = []
+        valid_actions_batch: List[List[int]] = []
+        masks_batch: List[Tuple[bool, ...]] = []
+
+        for batch_idx, env_idx in enumerate(active_indices):
+            state = states[env_idx]
             state_key = state.key()
             visits[state_key] += 1
             features = state_feature_vector(state)
-            valid_actions = available_actions(
+            actions = available_actions(
                 state,
-                surrender_allowed=env.surrender_allowed,
-                double_allowed=env.double_allowed,
+                surrender_allowed=envs[env_idx].surrender_allowed,
+                double_allowed=envs[env_idx].double_allowed,
             )
+            features_batch.append(features)
+            valid_actions_batch.append(actions)
+            masks_batch.append(_actions_to_mask(actions))
 
+        state_tensor = torch.tensor(features_batch, dtype=torch.float32, device=torch_device)
+        with torch.no_grad():
+            q_values_batch = policy_net(state_tensor)
+        masks_tensor = torch.tensor(masks_batch, dtype=torch.bool, device=torch_device)
+        masked_q_values = q_values_batch.masked_fill(~masks_tensor, -1e9)
+        greedy_actions = torch.argmax(masked_q_values, dim=1)
+
+        actions_batch: List[int] = []
+        for batch_idx, env_idx in enumerate(active_indices):
             if random.random() < epsilon:
-                action = random.choice(valid_actions)
+                chosen_action = random.choice(valid_actions_batch[batch_idx])
             else:
-                with torch.no_grad():
-                    state_tensor = torch.tensor([features], dtype=torch.float32, device=torch_device)
-                    q_values = policy_net(state_tensor).squeeze(0)
-                    mask = torch.tensor(
-                        _actions_to_mask(valid_actions), dtype=torch.bool, device=torch_device
-                    )
-                    q_values_masked = q_values.masked_fill(~mask, -1e9)
-                    action = int(torch.argmax(q_values_masked).item())
+                chosen_action = int(greedy_actions[batch_idx].item())
+            actions_batch.append(chosen_action)
 
+        for batch_idx, env_idx in enumerate(active_indices):
+            env = envs[env_idx]
+            features = features_batch[batch_idx]
+            action = actions_batch[batch_idx]
             next_state, reward, done, _ = env.step(action)
+            reward_value = float(reward)
+            episode_rewards[env_idx] += reward_value
+
             if next_state is None:
                 next_features = ZERO_FEATURES
                 next_mask = ZERO_MASK
@@ -438,7 +517,7 @@ def train_dqn(
                 )
                 next_mask = _actions_to_mask(next_valid_actions)
 
-            buffer.push(features, action, float(reward), next_features, done, next_mask)
+            buffer.push(features, action, reward_value, next_features, done, next_mask)
 
             if len(buffer) >= max(batch_size, warmup):
                 sample_size = min(batch_size, len(buffer))
@@ -469,21 +548,68 @@ def train_dqn(
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(policy_net.parameters(), 5.0)
                 optimizer.step()
+                loss_since_log += float(loss.item())
+                loss_updates_since_log += 1
 
             step_count += 1
             if step_count % target_sync_interval == 0:
                 target_net.load_state_dict(policy_net.state_dict())
 
             if next_state is not None:
-                state = next_state
+                states[env_idx] = next_state
 
-        epsilon = max(epsilon_end, epsilon * epsilon_decay)
+            if done:
+                reward_since_log += episode_rewards[env_idx]
+                episodes_since_log += 1
+                episode_rewards[env_idx] = 0.0
+                episodes_completed += 1
+                epsilon = max(epsilon_end, epsilon * epsilon_decay)
+
+                if episodes_completed < episodes:
+                    states[env_idx] = env.reset()
+                else:
+                    active_mask[env_idx] = False
+
+                if episodes_since_log > 0 and (
+                    episodes_completed == 1
+                    or episodes_completed % log_interval == 0
+                    or episodes_completed >= episodes
+                ):
+                    avg_reward = reward_since_log / max(1, episodes_since_log)
+                    avg_loss = (
+                        loss_since_log / loss_updates_since_log if loss_updates_since_log else None
+                    )
+                    buffer_ratio = len(buffer) / buffer.capacity if buffer.capacity else None
+                    _log_training_progress(
+                        "DQN",
+                        episodes_completed,
+                        episodes,
+                        avg_reward,
+                        epsilon=epsilon,
+                        avg_loss=avg_loss,
+                        buffer_fill_ratio=buffer_ratio,
+                    )
+                    reward_since_log = 0.0
+                    episodes_since_log = 0
+                    loss_since_log = 0.0
+                    loss_updates_since_log = 0
+
+        if episodes_completed >= episodes:
+            break
 
     target_net.load_state_dict(policy_net.state_dict())
     policy_net.eval()
 
+    reference_env = envs[0] if envs else BlackjackEnv(
+        dealer_hits_soft_17=dealer_hits_soft_17,
+        surrender_allowed=surrender_allowed,
+        double_allowed=double_allowed,
+    )
+
     q_table: Dict[str, List[float]] = {}
-    for state in _enumerate_reachable_states(env.surrender_allowed, env.double_allowed):
+    for state in _enumerate_reachable_states(
+        reference_env.surrender_allowed, reference_env.double_allowed
+    ):
         feats = state_feature_vector(state)
         state_tensor = torch.tensor([feats], dtype=torch.float32, device=torch_device)
         with torch.no_grad():
