@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import bisect
 import json
 import os
@@ -401,6 +402,54 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def load_dataset_class_names(config_path: Path) -> Optional[List[str]]:
+    try:
+        text = Path(config_path).read_text()
+    except FileNotFoundError:
+        return None
+
+    names: List[str] = []
+    in_block = False
+
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+
+        if not in_block:
+            if not stripped or stripped.startswith('#'):
+                continue
+
+            if stripped.startswith('names:'):
+                remainder = stripped[len('names:') :].strip()
+                if remainder:
+                    if remainder.startswith('['):
+                        try:
+                            parsed = ast.literal_eval(remainder)
+                        except (SyntaxError, ValueError):
+                            return None
+                        return [str(item) for item in parsed]
+                    candidate = remainder.strip("'\"")
+                    if candidate:
+                        return [candidate]
+                in_block = True
+            continue
+
+        if not stripped or stripped.startswith('#'):
+            continue
+
+        if stripped.startswith('- '):
+            name = stripped[2:].strip()
+            if name.startswith("'") and name.endswith("'") and len(name) >= 2:
+                name = name[1:-1]
+            elif name.startswith('"') and name.endswith('"') and len(name) >= 2:
+                name = name[1:-1]
+            names.append(name)
+            continue
+
+        break
+
+    return names or None
+
+
 def load_card_images(card_dir: Path) -> Dict[str, np.ndarray]:
     if not card_dir.exists():
         raise FileNotFoundError(f"Card directory does not exist: {card_dir}")
@@ -595,8 +644,37 @@ def generate_dataset(
 
 def train(args: argparse.Namespace) -> None:
     print("Loading assets...")
-    card_images = load_card_images(args.card_dir)
-    card_names: Sequence[str] = tuple(card_images.keys())
+    raw_card_images = load_card_images(args.card_dir)
+    expected_names = load_dataset_class_names(args.dataset_config)
+
+    card_images: Dict[str, np.ndarray]
+    card_names: Sequence[str]
+
+    if expected_names:
+        missing_cards = [name for name in expected_names if name not in raw_card_images]
+        if missing_cards:
+            missing_list = ", ".join(sorted(missing_cards))
+            raise RuntimeError(
+                f"Missing card PNGs for expected classes: {missing_list}."
+            )
+
+        card_images = {name: raw_card_images[name] for name in expected_names}
+        card_names = tuple(expected_names)
+
+        extra_assets = sorted(name for name in raw_card_images if name not in card_images)
+        if extra_assets:
+            print(
+                "Ignoring card assets not listed in dataset config: "
+                + ", ".join(extra_assets)
+            )
+    else:
+        print(
+            f"Warning: unable to parse class names from {args.dataset_config}; "
+            "using all card assets found."
+        )
+        card_images = raw_card_images
+        card_names = tuple(card_images.keys())
+
     backgrounds = load_backgrounds(args.background_dir, (args.img_width, args.img_height))
     card_lookup = {name: idx for idx, name in enumerate(card_names)}
     distribution_weights = None
