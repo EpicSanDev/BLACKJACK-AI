@@ -126,6 +126,10 @@ def main(argv: Iterable[str] | None = None) -> int:
             train_cmd = [
                 PY_BIN,
                 "model/train_model.py",
+                "--card-dir",
+                str(ROOT_DIR / "dataset" / "png"),
+                "--background-dir",
+                str(ROOT_DIR / "dataset" / "backgrounds"),
             ] + split_cli(args.train_args)
             run_step("Local detector training", train_cmd, dry_run=args.dry_run)
 
