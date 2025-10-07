@@ -18,6 +18,7 @@ DEFAULT_OUTPUT = ROOT_DIR / "dataset" / "external" / "blackjack_hands" / "card_d
 CARD_PATTERN = re.compile(r"-?\d+")
 
 PLAYER_COLUMN_CANDIDATES = [
+    'initial_hand',
     'player_cards_initial',
     'player_initial_cards',
     ('player', 'initial', 'card'),
@@ -29,6 +30,7 @@ PLAYER_COLUMN_CANDIDATES = [
 PLAYER_EXCLUDE_TOKENS = {'final', 'result', 'after', 'end'}
 
 DEALER_COLUMN_CANDIDATES = [
+    'dealer_up',
     'dealer_up_card',
     'dealer_upcard',
     ('dealer', 'upcard'),
