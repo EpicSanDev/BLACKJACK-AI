@@ -190,11 +190,68 @@ class VastAIClient:
                 raise VastAIError(f"Instance {instance_id} indisponible après {timeout} secondes.")
             time.sleep(poll_interval)
 
-    def run_remote_command(self, instance_id: int, command: str) -> Dict[str, Any]:
+    def run_remote_command(
+        self,
+        instance_id: int,
+        command: str,
+        *,
+        wait: bool = True,
+        poll_interval: float = 0.5,
+        max_attempts: int = 120,
+    ) -> Dict[str, Any]:
         payload = {"command": command}
         data = self.request("PUT", f"/instances/command/{instance_id}/", json=payload)
         if not data.get("success", False):
             raise VastAIError(f"Exécution distante refusée: {data}")
+        if not wait:
+            return data
+
+        result_url = data.get("result_url")
+        if not result_url:
+            return data
+
+        last_error: Optional[Exception] = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = requests.get(result_url, timeout=self.timeout)
+            except requests.RequestException as exc:  # pragma: no cover - réseau externe
+                last_error = exc
+                if attempt == max_attempts:
+                    break
+                time.sleep(min(poll_interval * attempt, 5.0))
+                continue
+
+            if response.status_code == 200:
+                output = response.text
+                writable_path = data.get("writeable_path")
+                if writable_path:
+                    output = output.replace(writable_path, "")
+                data["output"] = output
+                return data
+
+            time.sleep(poll_interval)
+
+        if last_error is not None:
+            raise VastAIError(
+                f"Résultat distant indisponible après {max_attempts} tentatives: {last_error}"
+            ) from last_error
+        raise VastAIError(f"Résultat distant indisponible via {result_url}")
+
+    def list_instances(self, *, owner: Optional[str] = "me") -> List[Dict[str, Any]]:
+        params: Dict[str, Any] = {}
+        if owner:
+            params["owner"] = owner
+        data = self.request("GET", "/instances/", params=params)
+        rows = data.get("instances")
+        if isinstance(rows, list):
+            return rows
+        raise VastAIError(f"Structure inattendue pour la liste d'instances: {rows!r}")
+
+    def destroy_instance(self, instance_id: int, *, force: bool = False) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"force": bool(force)} if force else {}
+        data = self.request("DELETE", f"/instances/{instance_id}/", json=payload)
+        if not data.get("success", False):
+            raise VastAIError(f"Destruction de l'instance {instance_id} refusée: {data}")
         return data
 
 
