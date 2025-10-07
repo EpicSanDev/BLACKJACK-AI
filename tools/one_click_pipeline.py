@@ -5,10 +5,18 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Optional
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 PY_BIN = sys.executable
+
+
+BLACKJACK_HANDS_DIR = ROOT_DIR / "dataset" / "external" / "blackjack_hands_raw"
+BLACKJACK_HANDS_CANDIDATES = (
+    "blackjack_hands.csv",
+    "blackjack_hands.csv.zip",
+    "blackjack_hands.zip",
+)
 
 
 class StepError(RuntimeError):
@@ -17,6 +25,28 @@ class StepError(RuntimeError):
 
 def split_cli(raw: str | None) -> List[str]:
     return shlex.split(raw) if raw else []
+
+
+
+
+def determine_blackjack_hands_input() -> Optional[Path]:
+    if not BLACKJACK_HANDS_DIR.exists():
+        return None
+
+    for name in BLACKJACK_HANDS_CANDIDATES:
+        candidate = BLACKJACK_HANDS_DIR / name
+        if candidate.exists():
+            return candidate
+
+    csv_files = sorted(BLACKJACK_HANDS_DIR.glob('*.csv'))
+    if csv_files:
+        return csv_files[0]
+
+    zip_files = sorted(BLACKJACK_HANDS_DIR.glob('*.zip'))
+    if zip_files:
+        return zip_files[0]
+
+    return None
 
 
 def run_step(label: str, command: List[str], *, dry_run: bool) -> None:
@@ -77,12 +107,21 @@ def main(argv: Iterable[str] | None = None) -> int:
                 run_step("Convert Kaggle cards dataset", convert_cmd, dry_run=args.dry_run)
 
             if not args.skip_card_distribution:
-                distribution_cmd = [
-                    PY_BIN,
-                    "tools/prepare_blackjack_hands.py",
-                    f"--sample={args.card_distribution_sample}",
-                ]
-                run_step("Summarise blackjack hands dataset", distribution_cmd, dry_run=args.dry_run)
+                blackjack_input = determine_blackjack_hands_input()
+                if blackjack_input is None:
+                    print(
+                        "Skipping blackjack hand summary: no CSV/ZIP found in "
+                        f"{BLACKJACK_HANDS_DIR}. Run tools/download_kaggle_datasets.py or use --skip-card-distribution."
+                    )
+                else:
+                    distribution_cmd = [
+                        PY_BIN,
+                        "tools/prepare_blackjack_hands.py",
+                        f"--sample={args.card_distribution_sample}",
+                        "--input",
+                        str(blackjack_input),
+                    ]
+                    run_step("Summarise blackjack hands dataset", distribution_cmd, dry_run=args.dry_run)
 
             train_cmd = [
                 PY_BIN,
