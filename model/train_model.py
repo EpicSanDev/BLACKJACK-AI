@@ -387,7 +387,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--img-height", type=int, default=640, help="Synthetic image height")
     parser.add_argument("--min-cards", type=int, default=2, help="Minimum number of cards per synthetic frame")
     parser.add_argument("--max-cards", type=int, default=5, help="Maximum number of cards per synthetic frame")
-    parser.add_argument("--epochs", type=int, default=120, help="Number of YOLO training epochs")
+    parser.add_argument("--epochs", type=int, default=300, help="Number of YOLO training epochs")
     parser.add_argument("--batch", type=int, default=16, help="Training batch size")
     parser.add_argument("--imgsz", type=int, default=640, help="YOLO input size (images resized to this square resolution)")
     parser.add_argument("--val-split", type=float, default=0.2, help="Proportion of data reserved for validation")
@@ -757,6 +757,18 @@ def train(args: argparse.Namespace) -> None:
         amp=args.amp,
         seed=args.seed,
         pretrained=True,
+        degrees=15.0,
+        translate=0.1,
+        scale=0.1,
+        shear=5.0,
+        perspective=0.0005,
+        flipud=0.5,
+        fliplr=0.5,
+        hsv_h=0.015,
+        hsv_s=0.7,
+        hsv_v=0.4,
+        mosaic=1.0,
+        mixup=0.1,
     )
 
     trainer = getattr(model, "trainer", None)
