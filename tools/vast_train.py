@@ -14,7 +14,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import requests
 
@@ -294,6 +294,116 @@ def shell_join(parts: Iterable[str]) -> str:
     return " ".join(quoted)
 
 
+# Rough performance weights used to estimate value for common GPUs.
+GPU_VALUE_SCORE_TABLE: Dict[str, float] = {
+    "h100": 140.0,
+    "h800": 135.0,
+    "a100": 125.0,
+    "a6000": 110.0,
+    "a5000": 95.0,
+    "a40": 90.0,
+    "a30": 75.0,
+    "4090": 120.0,
+    "4080": 110.0,
+    "4070": 95.0,
+    "3090": 100.0,
+    "3080": 90.0,
+    "3070": 80.0,
+    "3060": 70.0,
+    "2080 ti": 85.0,
+    "2080": 75.0,
+    "2070": 65.0,
+    "2060": 55.0,
+    "p100": 65.0,
+    "v100": 95.0,
+    "t4": 55.0,
+    "k80": 25.0,
+}
+
+
+def _as_float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _as_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _mb_to_gib(value: Any) -> float:
+    as_float = _as_float(value)
+    if as_float <= 0:
+        return 0.0
+    return as_float / 1024.0
+
+
+def estimate_gpu_power(gpu_name: Optional[str], num_gpus: Any) -> float:
+    base = 0.0
+    if gpu_name:
+        lowered = gpu_name.lower()
+        for keyword, score in GPU_VALUE_SCORE_TABLE.items():
+            if keyword in lowered:
+                base = max(base, score)
+    if base == 0.0:
+        base = 60.0 if gpu_name else 45.0
+    count = max(_as_int(num_gpus), 1)
+    return base * count
+
+
+def score_offer(offer: Dict[str, Any]) -> Dict[str, float]:
+    price = _as_float(offer.get("dph_total"))
+    if price <= 0:
+        price = 0.05
+
+    gpu_power = estimate_gpu_power(offer.get("gpu_name"), offer.get("num_gpus"))
+    gpu_total_ram_gib = _mb_to_gib(offer.get("gpu_total_ram"))
+    gpu_ram_gib = _mb_to_gib(offer.get("gpu_ram"))
+    system_ram_gib = max(
+        _mb_to_gib(offer.get("mem_ram")),
+        _mb_to_gib(offer.get("ram")),
+    )
+    cpu_cores = _as_float(offer.get("cpu_cores_effective")) or _as_float(offer.get("cpu_cores"))
+    cpu_ghz = _as_float(offer.get("cpu_ghz"))
+    cpu_score = cpu_cores * max(cpu_ghz, 1.0)
+
+    reliability = 1.1 if offer.get("verification") == "verified" else 1.0
+
+    performance = (
+        gpu_power
+        + gpu_total_ram_gib * 2.2
+        + gpu_ram_gib * 0.4
+        + system_ram_gib * 0.35
+        + cpu_score * 0.12
+    )
+
+    score = (performance * reliability) / price
+
+    return {
+        "score": score,
+        "performance": performance,
+        "price": price,
+        "gpu_power": gpu_power,
+        "gpu_total_ram_gib": gpu_total_ram_gib,
+        "system_ram_gib": system_ram_gib,
+        "cpu_score": cpu_score,
+        "reliability": reliability,
+    }
+
+
+def rank_offers_by_value(offers: Iterable[Dict[str, Any]]) -> List[Tuple[Dict[str, Any], Dict[str, float]]]:
+    scored: List[Tuple[Dict[str, Any], Dict[str, float]]] = []
+    for offer in offers:
+        metrics = score_offer(offer)
+        scored.append((offer, metrics))
+    scored.sort(key=lambda item: item[1]["score"], reverse=True)
+    return scored
+
+
 def build_training_command(train_args: List[str], python_bin: str) -> str:
     base_cmd = [python_bin, "train_advanced_advisor.py"]
     base_cmd.extend(train_args)
@@ -501,14 +611,29 @@ def main(argv: Optional[List[str]] = None) -> int:
         offers = client.search_offers(query)
         if not offers:
             raise SystemExit("Aucune offre Vast.ai ne correspond aux critères.")
-        candidate_offers = offers
-        first_offer = offers[0]
-        print("Offre sélectionnée:")
+        ranked_offers = rank_offers_by_value(offers)
+        candidate_offers = [item[0] for item in ranked_offers]
+        best_offer, best_metrics = ranked_offers[0]
+
+        print("Top offres selon le rapport performances/prix :")
+        for idx, (offer, metrics) in enumerate(ranked_offers[: min(3, len(ranked_offers))], start=1):
+            print(
+                f"  {idx}. ID={offer.get('id')} {offer.get('gpu_name')} "
+                f"({offer.get('num_gpus') or 1} GPU) -> score={metrics['score']:.2f}, "
+                f"prix=${metrics['price']:.2f}/h, VRAM={metrics['gpu_total_ram_gib']:.1f}GiB"
+            )
+
+        print("Offre retenue pour provisioning :")
         print(
             json.dumps(
                 {
-                    k: first_offer.get(k)
-                    for k in ("id", "gpu_name", "num_gpus", "dph_total", "gpu_ram", "geolocation")
+                    "id": best_offer.get("id"),
+                    "gpu_name": best_offer.get("gpu_name"),
+                    "num_gpus": best_offer.get("num_gpus"),
+                    "dph_total": best_offer.get("dph_total"),
+                    "gpu_total_ram_gib": round(best_metrics["gpu_total_ram_gib"], 2),
+                    "score": round(best_metrics["score"], 2),
+                    "geolocation": best_offer.get("geolocation"),
                 },
                 indent=2,
             )
