@@ -36,6 +36,18 @@ Key features:
 
 To reuse an existing dataset without regenerating images, append `--no-regenerate`.
 
+### Mix In External Datasets
+- Stitch real-world data into the synthetic corpus with `--extra-dataset /path/to/yolo_dataset`. The script autodetects `images/train` + `labels/train` (or `train/`) pairs and copies them into `dataset/train`/`dataset/val`.
+- Provide plain directories of paired images/labels with `--extra-train-dir` and `--extra-val-dir` when your assets already follow the repo layout.
+- When an imported dataset does not include a validation split, `--extra-dataset-val-split` controls the holdout fraction (default `0.2`).
+- Imported samples receive deterministic filenames, so multiple runs with `--no-regenerate` will keep previously merged assets unless you clean the target folders first.
+
+### Kaggle Assets
+- Install the Kaggle CLI (`pip install kaggle`), create an API token via your Kaggle account, and export `KAGGLE_USERNAME`/`KAGGLE_KEY`.
+- `python tools/download_kaggle_datasets.py` fetches both public datasets into `dataset/external/`. Use `--force` to refresh an existing download or `--skip-*` flags to limit the run.
+- Convert the classification dataset into YOLO format with `python tools/prepare_kaggle_cards.py --overwrite`. The converted images and labels land in `dataset/external/kaggle_cards_yolo` and are merged automatically by `model/train_model.py` (disable with `--no-kaggle-cards`).
+- Derive card-frequency priors from the 50M hands dataset with `python tools/prepare_blackjack_hands.py --sample 0.05`. The generated `card_distribution.json` biases synthetic card sampling; pass a custom path via `--card-distribution-json` or drop the effect with `--disable-card-distribution`.
+
 ## Real-Time Advisor
 
 `realtime_advisor.py` captures the table region of your monitor and streams YOLO detections into the Blackjack strategy engine.
@@ -107,6 +119,8 @@ requirements.txt    Minimal dependency set (Ultralytics + runtime libraries)
 ## Next Steps
 
 - Supply additional table background photos in `dataset/backgrounds` to diversify synthetic data.
+- Import phone or casino captures with `--extra-dataset` or `--extra-train-dir` to expose the detector to real-world lighting.
+- Pull the Kaggle datasets via `tools/download_kaggle_datasets.py` and refresh priors with `tools/prepare_blackjack_hands.py` before regenerating images.
 - Experiment with larger YOLO checkpoints (e.g., `yolov8s.pt`) via `--weights`.
 - Calibrate ROIs per casino resolution; save custom presets with shell aliases or wrapper scripts.
 
