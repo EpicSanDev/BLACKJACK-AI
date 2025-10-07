@@ -9,13 +9,13 @@ from blackjack.rl_policy import ACTION_LABELS, save_policy, train_dqn, train_q_l
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train an advanced Blackjack advisor policy (DQN or tabular).")
     parser.add_argument("--algo", choices=["dqn", "tabular"], default="dqn", help="Training algorithm (dqn or tabular Q-learning)")
-    parser.add_argument("--episodes", type=int, default=600000, help="Training episodes to run")
+    parser.add_argument("--episodes", type=int, default=1000000, help="Training episodes to run")
     parser.add_argument("--alpha", type=float, default=0.05, help="Tabular Q-learning rate")
     parser.add_argument("--gamma", type=float, default=0.995, help="Discount factor")
     parser.add_argument("--epsilon", type=float, default=1.0, help="Initial exploration epsilon")
     parser.add_argument("--epsilon-min", dest="epsilon_min", type=float, default=0.05, help="Minimum exploration epsilon")
     parser.add_argument("--epsilon-decay", dest="epsilon_decay", type=float, default=0.999, help="Multiplicative epsilon decay")
-    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for DQN optimizer")
+    parser.add_argument("--lr", type=float, default=5e-4, help="Learning rate for DQN optimizer")
     parser.add_argument("--batch-size", type=int, default=512, help="DQN mini-batch size")
     parser.add_argument("--replay-size", type=int, default=200_000, help="Replay buffer capacity")
     parser.add_argument("--warmup", type=int, default=5_000, help="Steps before starting gradient updates")
@@ -35,7 +35,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--parallel-envs",
         type=int,
-        default=1,
+        default=4,
         help="Number of blackjack environments to run in parallel for DQN training",
     )
     parser.add_argument("--dealer-hits-soft-17", action="store_true", help="Train assuming the dealer hits on soft 17")

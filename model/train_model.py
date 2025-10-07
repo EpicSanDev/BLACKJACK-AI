@@ -400,7 +400,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--patience", type=int, default=50, help="Early stopping patience in epochs")
     parser.add_argument("--cache-images", action="store_true", help="Cache images in memory to accelerate training")
     parser.add_argument("--no-amp", dest="amp", action="store_false", help="Disable automatic mixed precision even if available")
-    parser.set_defaults(regenerate=True, amp=True, use_kaggle_cards=True)
+    parser.add_argument("--no-plots", dest="plots", action="store_false", help="Disable plot generation during training")
+    parser.set_defaults(regenerate=True, amp=True, use_kaggle_cards=True, plots=True)
     return parser.parse_args()
 
 
@@ -769,6 +770,7 @@ def train(args: argparse.Namespace) -> None:
         hsv_v=0.4,
         mosaic=1.0,
         mixup=0.1,
+        plots=args.plots,
     )
 
     trainer = getattr(model, "trainer", None)
