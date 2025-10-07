@@ -751,7 +751,7 @@ def train(args: argparse.Namespace) -> None:
         imgsz=args.imgsz,
         batch=args.batch,
         device=device,
-        workers=args.workers,
+        workers=0,
         project=str(args.project),
         name=args.name,
         optimizer=args.optimizer,
