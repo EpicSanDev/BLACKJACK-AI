@@ -17,7 +17,7 @@ from blackjack import ACTION_LABELS_FR, DEFAULT_GAME_RULES, describe_hand, evalu
 from blackjack.advanced_advisor import AdvancedAdvisor
 from utils import select_best_device
 
-MODEL_PATH = "runs/detect/blackjack_detector2/weights/best.pt"
+MODEL_PATH = "runs/detector/blackjack_detector_max/weights/best.pt"
 DEFAULT_PLAYER_ROI = (600, 800, 400, 200)
 DEFAULT_DEALER_ROI = (300, 800, 200, 200)
 
@@ -278,23 +278,29 @@ def main() -> None:
             if player_cards and dealer_card:
                 strategy_player_cards = [card.to_strategy_card() for card in player_cards]
                 strategy_dealer_card = dealer_card.to_strategy_card()
-                if advanced_advisor is not None:
-                    advice = advanced_advisor.recommend(strategy_player_cards, strategy_dealer_card)
-                else:
-                    advice = get_expert_advice(strategy_player_cards, strategy_dealer_card, rules)
-                smoothed = smoother.update(advice)
 
-                normalised_player = normalise_hand(strategy_player_cards)
-                total, is_soft = evaluate_hand(normalised_player)
-                player_desc = describe_hand(normalised_player)
-                dealer_desc = describe_hand([strategy_dealer_card])
-                advice_label = ACTION_LABELS_FR.get(smoothed, smoothed)
-                soft_suffix = " (soft)" if is_soft else ""
-                advice_output = (
-                    f"Joueur: {total:>2}{soft_suffix} ({player_desc}) | "
-                    f"Croupier: {strategy_dealer_card['value']:>2} ({dealer_desc}) -> CONSEIL: {advice_label:<10}"
-                )
-                overlay_text = advice_label
+                has_player_values = all(card.get("value", 0) > 0 for card in strategy_player_cards)
+                dealer_value = strategy_dealer_card.get("value", 0)
+                if has_player_values and dealer_value > 0:
+                    if advanced_advisor is not None:
+                        advice = advanced_advisor.recommend(strategy_player_cards, strategy_dealer_card)
+                    else:
+                        advice = get_expert_advice(strategy_player_cards, strategy_dealer_card, rules)
+                    smoothed = smoother.update(advice)
+
+                    normalised_player = normalise_hand(strategy_player_cards)
+                    total, is_soft = evaluate_hand(normalised_player)
+                    player_desc = describe_hand(normalised_player)
+                    dealer_desc = describe_hand([strategy_dealer_card])
+                    advice_label = ACTION_LABELS_FR.get(smoothed, smoothed)
+                    soft_suffix = " (soft)" if is_soft else ""
+                    advice_output = (
+                        f"Joueur: {total:>2}{soft_suffix} ({player_desc}) | "
+                        f"Croupier: {strategy_dealer_card['value']:>2} ({dealer_desc}) -> CONSEIL: {advice_label:<10}"
+                    )
+                    overlay_text = advice_label
+                else:
+                    advice_output = "Valeurs de cartes incertaines, en attente..."
             elif player_cards or dealer_card:
                 advice_output = "Détection partielle, en attente de toutes les cartes..."
 

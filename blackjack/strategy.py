@@ -153,23 +153,32 @@ def get_expert_advice(
     pair = _is_pair(player_hand)
     dealer_val = _dealer_value(dealer)
 
+    if dealer_val < 2 or dealer_val > 11:
+        return "Hit"
+
     if pair:
         pair_val = _pair_value(player_hand)
         if pair_val in STRATEGY_PAIRS:
-            action = STRATEGY_PAIRS[pair_val][dealer_val]
+            dealer_actions = STRATEGY_PAIRS[pair_val]
+            action = dealer_actions.get(dealer_val)
             if action == "P" and not rules_dict["double_after_split_allowed"] and player_hand[0]["rank"] == "4":
                 return "Hit"
-            return ACTION_LOOKUP.get(action, "Hit")
+            if action:
+                return ACTION_LOOKUP.get(action, "Hit")
 
     if is_soft and player_total in STRATEGY_SOFT:
-        action = STRATEGY_SOFT[player_total][dealer_val]
-        return ACTION_LOOKUP.get(action, "Hit")
+        action = STRATEGY_SOFT[player_total].get(dealer_val)
+        if action:
+            return ACTION_LOOKUP.get(action, "Hit")
+        return "Hit"
 
     if 8 <= player_total <= 17 and player_total in STRATEGY_HARD:
-        action = STRATEGY_HARD[player_total][dealer_val]
+        action = STRATEGY_HARD[player_total].get(dealer_val)
         if action == "Rh":
             return "Surrender" if rules_dict.get("surrender_allowed", False) else "Hit"
-        return ACTION_LOOKUP.get(action, "Hit")
+        if action:
+            return ACTION_LOOKUP.get(action, "Hit")
+        return "Hit"
 
     if player_total >= 18:
         return "Stand"
