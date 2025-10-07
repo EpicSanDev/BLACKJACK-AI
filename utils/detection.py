@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import cv2
+import numpy as np
 from ultralytics import YOLO
 
 from utils import select_best_device
@@ -68,6 +69,7 @@ class BlackjackDetector:
         device: Optional[str] = None,
         conf_threshold: float = 0.35,
         iou_threshold: float = 0.45,
+        imgsz: int | None = None,
         card_value_map: Optional[Dict[str, int]] = None,
     ) -> None:
         self.model_path = Path(model_path)
@@ -79,6 +81,7 @@ class BlackjackDetector:
         self.device = select_best_device(requested_device)
         self.conf_threshold = float(conf_threshold)
         self.iou_threshold = float(iou_threshold)
+        self.imgsz = imgsz
 
         self.model = YOLO(str(self.model_path))
         self.model.to(self.device)
@@ -92,6 +95,37 @@ class BlackjackDetector:
             iou=self.iou_threshold,
             device=self.device,
             verbose=False,
+            imgsz=self.imgsz,
+        )
+        detections: List[CardDetection] = []
+        for result in results:
+            for box in result.boxes:
+                cls_id = int(box.cls[0])
+                class_name = self.model.names[int(cls_id)]
+                rank = class_name.split("_")[0]
+                value = int(self.card_value_map.get(rank, 0))
+                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                detections.append(
+                    CardDetection(
+                        rank=rank,
+                        value=value,
+                        box=(float(x1), float(y1), float(x2), float(y2)),
+                        confidence=float(box.conf[0]),
+                        center=((float(x1) + float(x2)) / 2, (float(y1) + float(y2)) / 2),
+                    )
+                )
+        return detections
+
+    def detect_from_image(self, image: np.ndarray) -> List[CardDetection]:
+        """Run the YOLO model on an in-memory image and return all detected cards."""
+
+        results = self.model.predict(
+            source=image,
+            conf=self.conf_threshold,
+            iou=self.iou_threshold,
+            device=self.device,
+            verbose=False,
+            imgsz=self.imgsz,
         )
         detections: List[CardDetection] = []
         for result in results:

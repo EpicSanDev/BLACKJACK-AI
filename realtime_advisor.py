@@ -11,11 +11,10 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import cv2
 import numpy as np
 from mss import mss
-from ultralytics import YOLO
 
 from blackjack import ACTION_LABELS_FR, DEFAULT_GAME_RULES, describe_hand, evaluate_hand, get_expert_advice, normalise_hand
 from blackjack.advanced_advisor import AdvancedAdvisor
-from utils import select_best_device
+from utils.detection import BlackjackDetector
 
 MODEL_PATH = "runs/detector/blackjack_detector_max/weights/best.pt"
 DEFAULT_PLAYER_ROI = (600, 800, 400, 200)
@@ -98,57 +97,6 @@ def combined_capture(regions: Sequence[Region], monitor: Dict[str, int], margin:
     return {"left": left, "top": top, "width": max(1, right - left), "height": max(1, bottom - top)}
 
 
-DEFAULT_VALUE_LOOKUP = {
-    "ace": 11,
-    "king": 10,
-    "queen": 10,
-    "jack": 10,
-    "10": 10,
-    "9": 9,
-    "8": 8,
-    "7": 7,
-    "6": 6,
-    "5": 5,
-    "4": 4,
-    "3": 3,
-    "2": 2,
-    "black": 0,
-    "red": 0,
-}
-
-
-def extract_cards(
-    detections: Sequence,
-    class_names: Dict[int, str],
-    capture_left: int,
-    capture_top: int,
-) -> List[DetectedCard]:
-    cards: List[DetectedCard] = []
-    for result in detections:
-        for box in result.boxes:
-            cls_id = int(box.cls[0])
-            class_name = class_names.get(cls_id, "unknown")
-            rank = class_name.split("_")[0]
-            value = DEFAULT_VALUE_LOOKUP.get(rank, 0)
-            conf = float(box.conf[0])
-            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-            global_x1 = capture_left + x1
-            global_y1 = capture_top + y1
-            global_x2 = capture_left + x2
-            global_y2 = capture_top + y2
-            cards.append(
-                DetectedCard(
-                    rank=rank,
-                    value=value,
-                    confidence=conf,
-                    global_center=((global_x1 + global_x2) / 2, (global_y1 + global_y2) / 2),
-                    global_bbox=(global_x1, global_y1, global_x2, global_y2),
-                    local_bbox=(x1, y1, x2, y2),
-                )
-            )
-    return cards
-
-
 def assign_cards(cards: Sequence[DetectedCard], regions: Sequence[Region]) -> Tuple[Dict[str, List[DetectedCard]], List[DetectedCard]]:
     grouped: Dict[str, List[DetectedCard]] = {region.name: [] for region in regions}
     leftovers: List[DetectedCard] = []
@@ -225,7 +173,6 @@ def main() -> None:
     regions = [Region("player", *args.player_roi), Region("dealer", *args.dealer_roi)]
     rules = runtime_rules(args)
     smoother = AdviceSmoother(args.history)
-    device = select_best_device(args.device)
 
     advanced_advisor: Optional[AdvancedAdvisor] = None
     if args.advanced_policy:
@@ -235,9 +182,14 @@ def main() -> None:
         except Exception as exc:  # noqa: BLE001 - surface failure to the user
             print(f"Impossible de charger la politique avancée: {exc}")
 
-    print("Chargement du modèle YOLO...")
-    model = YOLO(args.model)
-    model.to(device)
+    print("Chargement du modèle de détection...")
+    detector = BlackjackDetector(
+        model_path=args.model,
+        conf_threshold=args.conf,
+        iou_threshold=args.iou,
+        imgsz=args.imgsz,
+        device=args.device,
+    )
 
     def shutdown_handler(signum, frame):  # noqa: ARG001 - signal handler signature
         print("\nArrêt de l'assistant.")
@@ -257,16 +209,22 @@ def main() -> None:
             screenshot = sct.grab(capture_region)
             frame_bgr = cv2.cvtColor(np.array(screenshot), cv2.COLOR_BGRA2BGR)
 
-            results = model.predict(
-                source=frame_bgr,
-                conf=args.conf,
-                iou=args.iou,
-                imgsz=args.imgsz,
-                device=device,
-                verbose=False,
-            )
+            detections = detector.detect_from_image(frame_bgr)
 
-            cards = extract_cards(results, model.names, capture_region["left"], capture_region["top"])
+            cards: List[DetectedCard] = []
+            for det in detections:
+                x1, y1, x2, y2 = det.box
+                cards.append(
+                    DetectedCard(
+                        rank=det.rank,
+                        value=det.value,
+                        confidence=det.confidence,
+                        global_center=(capture_region["left"] + det.center[0], capture_region["top"] + det.center[1]),
+                        global_bbox=(capture_region["left"] + x1, capture_region["top"] + y1, capture_region["left"] + x2, capture_region["top"] + y2),
+                        local_bbox=det.box,
+                    )
+                )
+
             grouped, leftovers = assign_cards(cards, regions)
             player_cards = grouped.get("player", [])
             dealer_cards = grouped.get("dealer", [])

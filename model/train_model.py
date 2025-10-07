@@ -402,7 +402,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-amp", dest="amp", action="store_false", help="Disable automatic mixed precision even if available")
     parser.add_argument("--no-plots", dest="plots", action="store_false", help="Disable plot generation during training")
     parser.add_argument("--resume", type=str, default=None, help="Resume training from a specific checkpoint file (e.g., 'path/to/last.pt')")
-    parser.set_defaults(regenerate=True, amp=True, use_kaggle_cards=True, plots=True)
+    parser.add_argument("--augment", dest="augment", action="store_true", help="Enable training-time augmentation.")
+    parser.add_argument("--no-augment", dest="augment", action="store_false", help="Disable training-time augmentation.")
+    parser.set_defaults(regenerate=True, amp=True, use_kaggle_cards=True, plots=True, augment=True)
     return parser.parse_args()
 
 
@@ -759,6 +761,7 @@ def train(args: argparse.Namespace) -> None:
         amp=args.amp,
         seed=args.seed,
         pretrained=True,
+        augment=args.augment,
         degrees=15.0,
         translate=0.1,
         scale=0.1,
