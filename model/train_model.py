@@ -23,6 +23,8 @@ if str(BASE_DIR) not in sys.path:
 from prepare_dataset import split_dataset
 from utils import select_best_device
 
+os.environ['PYTORCH_NNPACK'] = '0'
+
 DEFAULT_CARD_DIR = BASE_DIR / "dataset" / "png"
 DEFAULT_BACKGROUND_DIR = BASE_DIR / "dataset" / "backgrounds"
 GENERATED_DIR = BASE_DIR / "dataset" / "generated"
