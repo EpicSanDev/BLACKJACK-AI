@@ -72,6 +72,44 @@ python realtime_advisor.py \
 - Runtime options toggle surrender/double rules to match table specifics.
 - Load a learned strategy by passing `--advanced-policy model/advanced_policy.json`; the CLI automatically falls back to chart advice if the policy is missing a state.
 
+## Collaborative Client & Training Server
+
+The `realtime_service` package bundles a lightweight Flask server that aggregates client submissions and a command-line client to capture games, annotate them with the detector, and push the results back for continuous learning.
+
+### Launch the server
+
+```bash
+python -m realtime_service.server
+```
+
+- Samples are stored under `server_data/` by default (overrides via `BLACKJACK_SERVER_DATA=/path/to/data`).
+- Trained community policies are written to `model/community_policy.json` (override with `BLACKJACK_POLICY_PATH`).
+- Health/status endpoints:
+  - `GET /health` → simple readiness probe.
+  - `GET /api/v1/status` → dataset size, training state, and policy path.
+  - `GET /api/v1/policy` → latest aggregated policy (404 until training completes).
+
+### Capture and submit samples from a client
+
+```bash
+python -m realtime_service.client capture path/to/screenshot.png \
+  --send \
+  --include-image \
+  --annotate \
+  --server-url http://localhost:8000/api/v1
+```
+
+- The CLI reuses the YOLO detector to extract cards, prints the suggested move, and (optionally) uploads the detection metadata, advisor recommendation, and raw screenshot.
+- Use `--player-action`, `--outcome`, and `--notes` to document the actual decision and result.
+- `--status` and `--train` subcommands query `/api/v1/status` and trigger background training jobs respectively:
+
+```bash
+python -m realtime_service.client status --server-url http://localhost:8000/api/v1
+python -m realtime_service.client train --server-url http://localhost:8000/api/v1
+```
+
+Collected samples are appended to `server_data/samples.jsonl`. Training computes a majority-vote policy per `(player total, hard/soft, dealer value)` state and saves it for downstream tools.
+
 ## Advanced Strategy Policy
 
 Train a high-accuracy policy from self-play using the new DQN pipeline (default):
